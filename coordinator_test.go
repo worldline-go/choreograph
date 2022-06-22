@@ -13,6 +13,8 @@ import (
 	"github.com/worldline-go/choreograph"
 )
 
+type contextKey string
+
 type track struct {
 	name         string
 	callbackName string
@@ -150,9 +152,9 @@ func testSharingDataWithContext(t *testing.T) {
 	}
 
 	var (
-		td                 = testData{text: "some text", value: 10}
-		contextTestingTKey = "testingT"
-		contextDataKey     = "data"
+		td                            = testData{text: "some text", value: 10}
+		contextTestingTKey contextKey = "testingT"
+		contextDataKey     contextKey = "data"
 	)
 
 	jobExecuted := false
@@ -202,13 +204,13 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 	}
 
 	var (
-		contextTestingTKey            = "testingT"
-		firstPreCheckReturnVal        = 11
-		firstPreCheckReturnErr  error = nil
-		firstJobReturnVal             = 12
-		firstJobReturnErr       error = nil
-		secondPreCheckReturnVal       = 21
-		secondPreCheckReturnErr error = nil
+		contextTestingTKey      contextKey = "testingT"
+		firstPreCheckReturnVal             = 11
+		firstPreCheckReturnErr  error      = nil
+		firstJobReturnVal                  = 12
+		firstJobReturnErr       error      = nil
+		secondPreCheckReturnVal            = 21
+		secondPreCheckReturnErr error      = nil
 	)
 
 	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
@@ -657,7 +659,7 @@ func testRetrieveErrors(t *testing.T) {
 }
 
 func testPassingInputData(t *testing.T) {
-	const contextTestingTKey = "testingT"
+	const contextTestingTKey contextKey = "testingT"
 
 	type testStruct struct {
 		val int
