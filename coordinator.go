@@ -13,7 +13,9 @@ import (
 	"github.com/pkg/errors"
 )
 
-const DataBagContextKey = "_coordinator_data_bag"
+type contextKey string
+
+const DataBagContextKey contextKey = "_coordinator_data_bag"
 
 const (
 	jobDataPostfix      = "_job"
@@ -28,7 +30,7 @@ var (
 	// ErrUnassignableParameter implies that input cannot be used as a parameter in callback function.
 	ErrUnassignableParameter = errors.New("cannot assign input to callback")
 	// ErrExecutionCanceled implies that execution was stopped intentionally by developer.
-	ErrExecutionCanceled = errors.New("execution cancelled by callback")
+	ErrExecutionCanceled = errors.New("execution canceled by callback")
 )
 
 // Coordinator is an executing processor of defined steps.
@@ -78,6 +80,7 @@ func NewCoordinator(ctx context.Context) (*Coordinator, error) {
 // - ErrPreCheckFuncIsRequired
 // - ErrPreCheckTooManyOutputParameters
 // - ErrPreCheckLastParamTypeErrorRequired
+// Those are step validation errors.
 func (c *Coordinator) AddStep(s *Step) error {
 	if err := checkStep(s); err != nil {
 		return errors.Wrap(err, "add step")
@@ -94,12 +97,12 @@ func (c *Coordinator) AddStep(s *Step) error {
 // if pre-check returns error then job function is skipped and next step is run, in case job returns error
 // no further step is being run.
 // In case run returns an error you should probably retry the same event.
-// For execution log errors (received from all callbacks) use GetExecutionErrors. This is cleared every run.
 //
 // Possible errors:
 // - ErrJobFailed
 // - ErrExecutionCanceled
 // - context.Canceled
+// For execution log errors (received from all callbacks) use GetExecutionErrors. This is cleared every run.
 func (c *Coordinator) Run(input interface{}) error {
 	c.err = []error{}
 
@@ -144,6 +147,7 @@ func (c *Coordinator) executeStep(i int, input interface{}) error {
 
 		if errors.Is(err, ErrExecutionCanceled) {
 			c.ctxCancel()
+
 			return ErrExecutionCanceled
 		}
 
@@ -152,7 +156,7 @@ func (c *Coordinator) executeStep(i int, input interface{}) error {
 
 	if output, ok := isReturnOutput(preCheckResp); ok {
 		if db, ok := c.ctx.Value(DataBagContextKey).(*DataBag); ok {
-			db.setData(db.getKeyName(c.stepName(i)+preCheckDataPostfix), output)
+			db.setPreCheckData(c.stepName(i), output)
 		}
 	}
 
@@ -171,12 +175,13 @@ func (c *Coordinator) executeStep(i int, input interface{}) error {
 		c.err = append(c.err, errors.Wrapf(err, "job '%s'", c.stepName(i)))
 
 		c.ctxCancel()
+
 		return ErrJobFailed
 	}
 
 	if output, ok := isReturnOutput(jobResp); ok {
 		if db, ok := c.ctx.Value(DataBagContextKey).(*DataBag); ok {
-			db.setData(db.getKeyName(c.stepName(i)+jobDataPostfix), output)
+			db.setJobData(c.stepName(i), output)
 		}
 	}
 

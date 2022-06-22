@@ -58,7 +58,7 @@ func (d *DataBag) setPreCheckData(name string, data interface{}) {
 	d.setData(name+preCheckDataPostfix, data)
 }
 
-func (_ *DataBag) getKeyName(name string) string {
+func (*DataBag) getKeyName(name string) string {
 	return strings.ToLower(name)
 }
 

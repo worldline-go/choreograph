@@ -39,7 +39,7 @@ var (
 	ErrPreCheckLastParamTypeErrorRequired = errors.New("preCheck's last output parameter must be of type error")
 	// ErrPreCheckTooManyInputParameters implies that pre-check function have too many input parameters.
 	ErrPreCheckTooManyInputParameters = errors.New("preCheck has too many input parameters, two total parameters allowed")
-	// ErrPreCheckContextParameterRequired
+	// ErrPreCheckContextParameterRequired implies that pre-check function does not have a context.Context as parameter.
 	ErrPreCheckContextParameterRequired = errors.New("preCheck must have at least one parameter of type context.Context")
 )
 
@@ -72,6 +72,11 @@ type Step struct {
 }
 
 func checkStep(step *Step) error {
+	const (
+		maxInputParametersCount = 2
+		maxReturnsCount         = 2
+	)
+
 	if step.Job == nil {
 		return ErrJobFuncIsRequired
 	}
@@ -88,9 +93,11 @@ func checkStep(step *Step) error {
 	if funcType.NumIn() == 0 {
 		return ErrJobContextParameterRequired
 	}
-	if funcType.NumIn() > 2 {
+
+	if funcType.NumIn() > maxInputParametersCount {
 		return ErrJobTooManyInputParameters
 	}
+
 	if funcType.In(0) != reflect.TypeOf((*context.Context)(nil)).Elem() {
 		return ErrJobContextAsFirstParameter
 	}
@@ -98,9 +105,11 @@ func checkStep(step *Step) error {
 	if funcType.NumOut() == 0 {
 		return ErrJobErrorOnOutputRequired
 	}
-	if funcType.NumOut() > 2 {
+
+	if funcType.NumOut() > maxReturnsCount {
 		return ErrJobTooManyOutputParameters
 	}
+
 	if !funcType.Out(funcType.NumOut() - 1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
 		return ErrJobErrorAsLastParameterRequired
 	}
@@ -113,9 +122,11 @@ func checkStep(step *Step) error {
 	if preCheckType.NumIn() == 0 {
 		return ErrPreCheckContextParameterRequired
 	}
-	if preCheckType.NumIn() > 2 {
+
+	if preCheckType.NumIn() > maxInputParametersCount {
 		return ErrPreCheckTooManyInputParameters
 	}
+
 	if preCheckType.In(0) != reflect.TypeOf((*context.Context)(nil)).Elem() {
 		return ErrPreCheckContextAsFirstParameter
 	}
@@ -123,9 +134,11 @@ func checkStep(step *Step) error {
 	if preCheckType.NumOut() == 0 {
 		return ErrPreCheckErrorOnOutputRequired
 	}
-	if preCheckType.NumOut() > 2 {
+
+	if preCheckType.NumOut() > maxReturnsCount {
 		return ErrPreCheckTooManyOutputParameters
 	}
+
 	if !preCheckType.Out(preCheckType.NumOut() - 1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
 		return ErrPreCheckLastParamTypeErrorRequired
 	}
