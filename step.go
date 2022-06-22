@@ -56,6 +56,7 @@ type Step struct {
 	// - func(ctx context.Context) error
 	// - func(ctx context.Context) (int, error)
 	// - func(ctx context.Context) (string, error)
+	// - func(ctx context.Context, input int) (float64, error)
 	Job interface{}
 	// PreCheck is a function which will be run before Job, it should ensure that Job can be run.
 	//
@@ -66,6 +67,7 @@ type Step struct {
 	// - func(ctx context.Context) error
 	// - func(ctx context.Context) (int, error)
 	// - func(ctx context.Context) (string, error)
+	// - func(ctx context.Context, input int) (float64, error)
 	PreCheck interface{}
 }
 

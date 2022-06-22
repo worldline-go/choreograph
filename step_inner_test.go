@@ -73,6 +73,22 @@ func Test_checkStep(t *testing.T) {
 			wantErr: ErrJobTooManyInputParameters,
 		},
 		{
+			name: "two inputs, two outputs for job",
+			step: &Step{
+				Job:      func(context.Context, int) (string, error) { return "", nil },
+				PreCheck: simpleJobOrPreCheckFunc,
+			},
+			wantErr: nil,
+		},
+		{
+			name: "two inputs, two outputs for preCheck",
+			step: &Step{
+				PreCheck: func(context.Context, int) (string, error) { return "", nil },
+				Job:      simpleJobOrPreCheckFunc,
+			},
+			wantErr: nil,
+		},
+		{
 			name: "job is not a function",
 			step: &Step{
 				Job:      dummyStruct{},
