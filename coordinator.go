@@ -141,6 +141,12 @@ func (c *Coordinator) executeStep(i int, input interface{}) error {
 
 	preCheckResp := preCheckValue.Call(preCheckParams)
 
+	if output, ok := isReturnOutput(preCheckResp); ok {
+		if db, ok := c.ctx.Value(DataBagContextKey).(*DataBag); ok {
+			db.setPreCheckData(c.stepName(i), output)
+		}
+	}
+
 	err = isReturnError(preCheckResp)
 	if err != nil {
 		c.err = append(c.err, errors.Wrapf(err, "preCheck '%s'", c.stepName(i)))
@@ -152,12 +158,6 @@ func (c *Coordinator) executeStep(i int, input interface{}) error {
 		}
 
 		return nil
-	}
-
-	if output, ok := isReturnOutput(preCheckResp); ok {
-		if db, ok := c.ctx.Value(DataBagContextKey).(*DataBag); ok {
-			db.setPreCheckData(c.stepName(i), output)
-		}
 	}
 
 	jobValue := reflect.ValueOf(c.steps[i].Job)
