@@ -200,6 +200,9 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 			{name: "first", callbackName: "job"},
 			{name: "second", callbackName: "preCheck"},
 			{name: "second", callbackName: "job"},
+			{name: "third", callbackName: "preCheck"},
+			{name: "forth", callbackName: "preCheck"},
+			{name: "forth", callbackName: "job"},
 		},
 	}
 
@@ -211,6 +214,7 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 		firstJobReturnErr       error      = nil
 		secondPreCheckReturnVal            = 21
 		secondPreCheckReturnErr error      = nil
+		thirdPreCheckReturnVal             = 21
 	)
 
 	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
@@ -283,6 +287,45 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 					require.Truef(testingT, ok, "expected that data from pre-check is there")
 
 					require.Equal(testingT, secondPreCheckReturnVal, pcSecond)
+
+					return nil
+				},
+			},
+			{
+				Name: "third",
+				PreCheck: func(ctx context.Context) (int, error) {
+					et.registerExecution("third", "preCheck")
+
+					return thirdPreCheckReturnVal, errors.New("dummy error")
+				},
+				Job: func(ctx context.Context) error {
+					// we don't expect this to run
+					et.registerExecution("third", "job")
+
+					return nil
+				},
+			},
+			{
+				Name: "forth",
+				PreCheck: func(ctx context.Context) error {
+					et.registerExecution("forth", "preCheck")
+
+					return nil
+				},
+				Job: func(ctx context.Context) error {
+					// we don't expect this to run
+					et.registerExecution("forth", "job")
+
+					testingT, ok := ctx.Value(contextTestingTKey).(*testing.T)
+					require.Truef(testingT, ok, "expected 'testingT' struct object")
+
+					dataBag, err := choreograph.GetDataBagFromCtx(ctx)
+					require.NoError(testingT, err)
+
+					data, ok := dataBag.GetPreCheckData("third")
+					require.Truef(testingT, ok, "expected that data from pre-check is there")
+
+					require.Equal(testingT, thirdPreCheckReturnVal, data)
 
 					return nil
 				},
