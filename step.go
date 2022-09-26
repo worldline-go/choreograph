@@ -2,7 +2,9 @@ package choreograph
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -144,4 +146,15 @@ func checkStep(step *Step) error {
 	}
 
 	return nil
+}
+
+// Steps is a slice of Step.
+type Steps []*Step
+
+func (s Steps) StepName(i int) string {
+	if i > len(s) || strings.TrimSpace(s[i].Name) == "" {
+		return fmt.Sprintf("#%d", i)
+	}
+
+	return s[i].Name
 }

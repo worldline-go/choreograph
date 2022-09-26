@@ -2,7 +2,7 @@ package choreograph
 
 import (
 	"context"
-	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,12 +14,12 @@ func TestCoordinator_AddStep(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		steps   []*Step
+		steps   Steps
 		wantErr bool
 	}{
 		{
 			name: "add one step",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -30,7 +30,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 		{
 			name: "add several steps",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -51,7 +51,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 		{
 			name: "error when adding step",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -88,11 +88,11 @@ func TestCoordinator_AddStep(t *testing.T) {
 }
 
 func TestNewCoordinator(t *testing.T) {
-	testCtx, testCancelCtx := context.WithCancel(context.Background())
-	defer testCancelCtx()
+	testCtx := context.WithValue(context.Background(), "dummy_key", "dummy_value")
 
 	type args struct {
-		ctx context.Context
+		ctx     context.Context
+		options []Option
 	}
 	tests := []struct {
 		name    string
@@ -104,7 +104,7 @@ func TestNewCoordinator(t *testing.T) {
 			name: "successfully created",
 			args: args{ctx: testCtx},
 			want: &Coordinator{
-				ctx: testCtx,
+				workerCount: runtime.NumCPU(),
 			},
 		},
 		{
@@ -112,25 +112,39 @@ func TestNewCoordinator(t *testing.T) {
 			args:    args{ctx: nil},
 			wantErr: ErrCoordinatorContextEmpty,
 		},
+		{
+			name: "successfully created with worker count as option",
+			args: args{
+				ctx:     testCtx,
+				options: []Option{WithWorkerCount(10)},
+			},
+			want: &Coordinator{
+				workerCount: 10,
+			},
+		},
+		{
+			name: "successfully created with worker count lower than 1",
+			args: args{
+				ctx:     testCtx,
+				options: []Option{WithWorkerCount(0)},
+			},
+			want: &Coordinator{
+				workerCount: 1,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewCoordinator(tt.args.ctx)
+			got, err := NewCoordinator(tt.args.ctx, tt.args.options...)
 
 			if tt.wantErr != nil {
 				assert.Nil(t, got)
 				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
-				cancelReflect := reflect.ValueOf(got.ctxCancel)
-
 				assert.NoError(t, err)
-				assert.IsType(t, testCtx, got.ctx)
-				assert.Truef(t, cancelReflect.Kind() == reflect.Func, "context cancel function should be set")
 
-				// Check if context got DataBag
-				db := got.ctx.Value(DataBagContextKey)
-
-				assert.IsType(t, new(DataBag), db)
+				// Check workers count
+				assert.Equalf(t, tt.want.workerCount, got.workerCount, "expected count of workers is '%d', got '%d'", tt.want.workerCount, got.workerCount)
 			}
 		})
 	}
