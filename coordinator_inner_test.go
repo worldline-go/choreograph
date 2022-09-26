@@ -88,7 +88,9 @@ func TestCoordinator_AddStep(t *testing.T) {
 }
 
 func TestNewCoordinator(t *testing.T) {
-	testCtx := context.WithValue(context.Background(), "dummy_key", "dummy_value")
+	var ctxKey contextKey = "dummy_key"
+
+	testCtx := context.WithValue(context.Background(), ctxKey, "dummy_value")
 
 	type args struct {
 		ctx     context.Context
