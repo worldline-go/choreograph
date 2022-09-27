@@ -116,7 +116,7 @@ func TestCoordinator_Run(t *testing.T) {
 func TestCoordinator_RunConcurrent(t *testing.T) {
 	const (
 		inputsCount int64 = 1000
-		runCounts         = 2
+		runCounts   int   = 2
 	)
 
 	var (
