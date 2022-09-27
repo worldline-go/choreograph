@@ -2,7 +2,7 @@ package choreograph
 
 import (
 	"context"
-	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,12 +14,12 @@ func TestCoordinator_AddStep(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		steps   []*Step
+		steps   Steps
 		wantErr bool
 	}{
 		{
 			name: "add one step",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -30,7 +30,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 		{
 			name: "add several steps",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -51,7 +51,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 		{
 			name: "error when adding step",
-			steps: []*Step{
+			steps: Steps{
 				{
 					Name:     "first",
 					Job:      simpleJobOrPreCheckFunc,
@@ -62,11 +62,9 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, err := NewCoordinator(ctx)
+			c, err := NewCoordinator()
 			require.NoError(t, err)
 
 			for _, s := range tt.steps {
@@ -80,19 +78,18 @@ func TestCoordinator_AddStep(t *testing.T) {
 				}
 			}
 
-			if assert.Len(t, c.steps, len(tt.steps), "incorrect length of steps") {
-				assert.Equal(t, tt.steps, c.steps)
+			for wIdx := range c.workers {
+				if assert.Len(t, c.workers[wIdx].steps, len(tt.steps), "incorrect length of steps") {
+					assert.Equal(t, tt.steps, c.workers[wIdx].steps)
+				}
 			}
 		})
 	}
 }
 
 func TestNewCoordinator(t *testing.T) {
-	testCtx, testCancelCtx := context.WithCancel(context.Background())
-	defer testCancelCtx()
-
 	type args struct {
-		ctx context.Context
+		options []Option
 	}
 	tests := []struct {
 		name    string
@@ -102,35 +99,42 @@ func TestNewCoordinator(t *testing.T) {
 	}{
 		{
 			name: "successfully created",
-			args: args{ctx: testCtx},
+			args: args{},
 			want: &Coordinator{
-				ctx: testCtx,
+				workerCount: runtime.NumCPU(),
 			},
 		},
 		{
-			name:    "missing context",
-			args:    args{ctx: nil},
-			wantErr: ErrCoordinatorContextEmpty,
+			name: "successfully created with worker count as option",
+			args: args{
+				options: []Option{WithWorkerCount(10)},
+			},
+			want: &Coordinator{
+				workerCount: 10,
+			},
+		},
+		{
+			name: "successfully created with worker count lower than 1",
+			args: args{
+				options: []Option{WithWorkerCount(0)},
+			},
+			want: &Coordinator{
+				workerCount: 1,
+			},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewCoordinator(tt.args.ctx)
+			got, err := NewCoordinator(tt.args.options...)
 
 			if tt.wantErr != nil {
 				assert.Nil(t, got)
 				assert.ErrorIs(t, err, tt.wantErr)
 			} else {
-				cancelReflect := reflect.ValueOf(got.ctxCancel)
-
 				assert.NoError(t, err)
-				assert.IsType(t, testCtx, got.ctx)
-				assert.Truef(t, cancelReflect.Kind() == reflect.Func, "context cancel function should be set")
 
-				// Check if context got DataBag
-				db := got.ctx.Value(DataBagContextKey)
-
-				assert.IsType(t, new(DataBag), db)
+				// Check workers count
+				assert.Equalf(t, tt.want.workerCount, got.workerCount, "expected count of workers is '%d', got '%d'", tt.want.workerCount, got.workerCount)
 			}
 		})
 	}

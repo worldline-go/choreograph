@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -112,6 +113,79 @@ func TestCoordinator_Run(t *testing.T) {
 	}
 }
 
+func TestCoordinator_RunConcurrent(t *testing.T) {
+	const (
+		inputsCount int64 = 1000
+		runCounts   int   = 2
+	)
+
+	var (
+		inputs          = make([]interface{}, inputsCount)
+		preCheckCounter int64
+		jobCounter      int64
+		resultsCounter  int64
+		idx             int64
+	)
+
+	for ; idx < inputsCount; idx++ {
+		inputs[idx] = idx
+	}
+
+	steps := []*choreograph.Step{
+		{
+			Name: "first",
+			PreCheck: func(ctx context.Context) error {
+				atomic.AddInt64(&preCheckCounter, 1)
+
+				return nil
+			},
+			Job: func(ctx context.Context) error {
+				atomic.AddInt64(&jobCounter, 1)
+
+				return nil
+			},
+		},
+		{
+			Name: "second",
+			PreCheck: func(ctx context.Context) error {
+				atomic.AddInt64(&preCheckCounter, 1)
+
+				return nil
+			},
+			Job: func(ctx context.Context) error {
+				atomic.AddInt64(&jobCounter, 1)
+
+				return nil
+			},
+		},
+	}
+
+	c, err := prepareCoordinatorWithSteps(steps, choreograph.WithWorkerCount(4))
+
+	require.NoError(t, err)
+
+	// to check if we can run concurrent multiple times we do it in loop
+	for run := 0; run < runCounts; run++ {
+		preCheckCounter = 0
+		jobCounter = 0
+		resultsCounter = 0
+
+		resultsChan := c.RunConcurrent(context.Background(), inputs)
+
+		for r := range resultsChan {
+			resultsCounter++
+			require.Lenf(t, r.ExecutionErrors, 0, "no execution errors expected")
+			require.NoError(t, r.RuntimeError)
+		}
+
+		expectedCallbackCounter := inputsCount * int64(len(steps))
+
+		require.Equalf(t, inputsCount, resultsCounter, "expected %d on results counter, got %d", inputsCount, resultsCounter)
+		require.Equalf(t, expectedCallbackCounter, preCheckCounter, "expected %d on pre-check counter, got %d", expectedCallbackCounter, preCheckCounter)
+		require.Equalf(t, expectedCallbackCounter, jobCounter, "expected %d on job counter, got %d", expectedCallbackCounter, jobCounter)
+	}
+}
+
 func testStepsRunNoErr(t *testing.T) {
 	et := executionTracker{
 		expectedTrack: []track{
@@ -135,12 +209,13 @@ func testStepsRunNoErr(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-
-	c, err := prepareCoordinatorWithSteps(ctx, steps)
+	c, err := prepareCoordinatorWithSteps(steps)
 
 	require.NoError(t, err)
-	require.NoError(t, c.Run(nil))
+
+	execErrs, runtimeErr := c.Run(context.Background(), nil)
+	require.Lenf(t, execErrs, 0, "no execution errors expected")
+	require.NoError(t, runtimeErr)
 
 	et.assertExpectation(t)
 }
@@ -163,7 +238,6 @@ func testSharingDataWithContext(t *testing.T) {
 	ctx = context.WithValue(ctx, contextTestingTKey, t)
 
 	c, err := prepareCoordinatorWithSteps(
-		ctx,
 		[]*choreograph.Step{{
 			Name: "first",
 			Job: func(ctx context.Context) error {
@@ -188,7 +262,10 @@ func testSharingDataWithContext(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	require.NoError(t, c.Run(nil))
+
+	execErrs, runtimeErr := c.Run(ctx, nil)
+	require.Lenf(t, execErrs, 0, "no execution errors expected")
+	require.NoError(t, runtimeErr)
 
 	assert.Truef(t, jobExecuted, "expected that job will be executed")
 }
@@ -217,10 +294,7 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 		thirdPreCheckReturnVal             = 21
 	)
 
-	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
-
 	c, err := prepareCoordinatorWithSteps(
-		ctx,
 		[]*choreograph.Step{
 			{
 				Name: "first",
@@ -334,7 +408,14 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 	)
 
 	require.NoError(t, err)
-	require.NoError(t, c.Run(nil))
+
+	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
+
+	execErrs, runtimeErr := c.Run(ctx, nil)
+
+	// 1 because third pre-check is returning it
+	require.Lenf(t, execErrs, 1, "1 execution error expected")
+	require.NoError(t, runtimeErr)
 
 	et.assertExpectation(t)
 }
@@ -420,10 +501,11 @@ func testExecutionCorrectness(t *testing.T) {
 
 	ctx := context.Background()
 
-	c, err := prepareCoordinatorWithSteps(ctx, steps)
+	c, err := prepareCoordinatorWithSteps(steps)
 	require.NoError(t, err)
 
-	if assert.NoError(t, c.Run(nil)) {
+	execErrs, runtimeErr := c.Run(ctx, nil)
+	if assert.Lenf(t, execErrs, 0, "no execution errors expected") && assert.NoError(t, runtimeErr) {
 		et.assertExpectation(t)
 	}
 }
@@ -443,11 +525,12 @@ func testExecutionContinueCancel(t *testing.T) {
 	cancel()
 
 	testCases := []struct {
-		name          string
-		steps         []*choreograph.Step
-		ctx           context.Context
-		expectedTrack []track
-		expectedError error
+		name                        string
+		steps                       []*choreograph.Step
+		ctx                         context.Context
+		expectedTrack               []track
+		expectedExecutionErrorCount int
+		expectedRuntimeError        error
 	}{
 		{
 			name: "first preCheck error",
@@ -468,6 +551,7 @@ func testExecutionContinueCancel(t *testing.T) {
 				{name: "second", callbackName: "preCheck"},
 				{name: "second", callbackName: "job"},
 			},
+			expectedExecutionErrorCount: 1,
 		},
 		{
 			name: "first job error",
@@ -487,7 +571,8 @@ func testExecutionContinueCancel(t *testing.T) {
 				{name: "first", callbackName: "preCheck"},
 				{name: "first", callbackName: "job"},
 			},
-			expectedError: choreograph.ErrJobFailed,
+			expectedRuntimeError:        choreograph.ErrJobFailed,
+			expectedExecutionErrorCount: 1,
 		},
 		{
 			name: "second preCheck error",
@@ -508,7 +593,8 @@ func testExecutionContinueCancel(t *testing.T) {
 				{name: "first", callbackName: "job"},
 				{name: "second", callbackName: "preCheck"},
 			},
-			expectedError: nil,
+			expectedRuntimeError:        nil,
+			expectedExecutionErrorCount: 1,
 		},
 		{
 			name: "second job error",
@@ -530,7 +616,8 @@ func testExecutionContinueCancel(t *testing.T) {
 				{name: "second", callbackName: "preCheck"},
 				{name: "second", callbackName: "job"},
 			},
-			expectedError: choreograph.ErrJobFailed,
+			expectedRuntimeError:        choreograph.ErrJobFailed,
+			expectedExecutionErrorCount: 1,
 		},
 		{
 			name: "context cancelled",
@@ -546,9 +633,10 @@ func testExecutionContinueCancel(t *testing.T) {
 					PreCheck: et.getExecutionFn("second", "preCheck"),
 				},
 			},
-			ctx:           cancelledCtx,
-			expectedTrack: []track{},
-			expectedError: context.Canceled,
+			ctx:                         cancelledCtx,
+			expectedTrack:               []track{},
+			expectedRuntimeError:        context.Canceled,
+			expectedExecutionErrorCount: 0,
 		},
 		{
 			name: "cancel after first pre-check",
@@ -570,7 +658,8 @@ func testExecutionContinueCancel(t *testing.T) {
 			expectedTrack: []track{
 				{name: "first", callbackName: "preCheck"},
 			},
-			expectedError: choreograph.ErrExecutionCanceled,
+			expectedRuntimeError:        choreograph.ErrExecutionCanceled,
+			expectedExecutionErrorCount: 1,
 		},
 	}
 
@@ -584,14 +673,16 @@ func testExecutionContinueCancel(t *testing.T) {
 				ctx = context.Background()
 			}
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			err = c.Run(nil)
-			if tt.expectedError != nil {
-				assert.ErrorIs(t, err, tt.expectedError)
+			execErrs, runtimeErr := c.Run(ctx, nil)
+			require.Lenf(t, execErrs, tt.expectedExecutionErrorCount, "no execution errors expected")
+
+			if tt.expectedRuntimeError != nil {
+				assert.ErrorIs(t, runtimeErr, tt.expectedRuntimeError)
 			} else {
-				assert.NoError(t, err)
+				assert.NoError(t, runtimeErr)
 			}
 
 			et.assertExpectation(t)
@@ -681,20 +772,23 @@ func testRetrieveErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			err = c.Run(nil)
+			execErrs, runtimeErr := c.Run(ctx, nil)
+
 			if tt.expectedRunError {
-				require.Error(t, err)
+				require.Error(t, runtimeErr)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, runtimeErr)
 			}
 
-			runtimeErrs := c.GetExecutionErrors()
-			if assert.Len(t, runtimeErrs, len(tt.expectedErrors)) {
+			// this assertion should be removed after next removing GetExecutionErrors method
+			require.Equal(t, execErrs, c.GetExecutionErrors())
+
+			if assert.Len(t, execErrs, len(tt.expectedErrors)) {
 				for errIdx := range tt.expectedErrors {
-					errors.Is(runtimeErrs[errIdx], tt.expectedErrors[errIdx])
+					errors.Is(execErrs[errIdx], tt.expectedErrors[errIdx])
 				}
 			}
 		})
@@ -986,21 +1080,23 @@ func testPassingInputData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), contextTestingTKey, t)
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			err = c.Run(tt.input)
+			execErrs, runtimeErr := c.Run(ctx, tt.input)
+			require.Lenf(t, execErrs, 0, "no execution errors expected")
+
 			if tt.expectedErr != nil {
-				assert.ErrorIs(t, err, tt.expectedErr)
+				assert.ErrorIs(t, runtimeErr, tt.expectedErr)
 			} else {
-				assert.NoError(t, err)
+				assert.NoError(t, runtimeErr)
 			}
 		})
 	}
 }
 
-func prepareCoordinatorWithSteps(ctx context.Context, steps []*choreograph.Step) (*choreograph.Coordinator, error) {
-	c, err := choreograph.NewCoordinator(ctx)
+func prepareCoordinatorWithSteps(steps []*choreograph.Step, options ...choreograph.Option) (*choreograph.Coordinator, error) {
+	c, err := choreograph.NewCoordinator(options...)
 	if err != nil {
 		return nil, err
 	}

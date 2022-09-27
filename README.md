@@ -70,7 +70,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	coordinator, err := choreograph.NewCoordinator(ctx)
+	coordinator, err := choreograph.NewCoordinator()
 	if err != nil {
 		panic(err)
 	}
@@ -90,8 +90,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	if err := coordinator.Run(nil); err != nil {
+	
+	if _, runtimeError := coordinator.Run(ctx, nil); runtimeError != nil {
 		panic(err)
 	}
 }
@@ -134,7 +134,7 @@ func main() {
 
 	ctx = context.WithValue(context.Background(), CtxDbKey, conn)
 
-	coordinator, err := choreograph.NewCoordinator(ctx)
+	coordinator, err := choreograph.NewCoordinator()
 	if err != nil {
 		panic(err)
 	}
@@ -149,7 +149,7 @@ func main() {
 	}
 
 	for _, i := range inputs {
-		if err := coordinator.Run(i); err != nil {
+		if _, runtimeError := coordinator.Run(ctx, i); runtimeError != nil {
 			panic(err)
 		}
 	}
