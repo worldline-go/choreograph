@@ -80,8 +80,10 @@ func TestCoordinator_AddStep(t *testing.T) {
 				}
 			}
 
-			if assert.Len(t, c.steps, len(tt.steps), "incorrect length of steps") {
-				assert.Equal(t, tt.steps, c.steps)
+			for wIdx := range c.workers {
+				if assert.Len(t, c.workers[wIdx].steps, len(tt.steps), "incorrect length of steps") {
+					assert.Equal(t, tt.steps, c.workers[wIdx].steps)
+				}
 			}
 		})
 	}

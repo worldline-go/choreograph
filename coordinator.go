@@ -48,8 +48,8 @@ type Coordinator struct {
 	results chan Result
 	wg      *sync.WaitGroup
 
-	steps Steps
-	err   []error
+	addStepLock sync.Locker
+	err         []error
 }
 
 // NewCoordinator creates new executing processor which uses passed context.
@@ -64,8 +64,8 @@ func NewCoordinator(ctx context.Context, opts ...Option) (*Coordinator, error) {
 		inputs:      make(chan interface{}, bufferSize),
 		results:     make(chan Result, bufferSize),
 		wg:          new(sync.WaitGroup),
+		addStepLock: new(sync.Mutex),
 		workers:     nil,
-		steps:       nil,
 		err:         nil,
 	}
 
@@ -104,11 +104,16 @@ func NewCoordinator(ctx context.Context, opts ...Option) (*Coordinator, error) {
 // - ErrPreCheckLastParamTypeErrorRequired
 // Those are step validation errors.
 func (c *Coordinator) AddStep(s *Step) error {
+	c.addStepLock.Lock()
+	defer c.addStepLock.Unlock()
+
 	if err := checkStep(s); err != nil {
 		return errors.Wrap(err, "add step")
 	}
 
-	c.steps = append(c.steps, s)
+	for idx := 0; idx < len(c.workers); idx++ {
+		c.workers[idx].steps = append(c.workers[idx].steps, s)
+	}
 
 	return nil
 }
@@ -134,12 +139,22 @@ func (c *Coordinator) Run(input interface{}) ([]error, error) {
 	return result.ExecutionErrors, result.RuntimeError
 }
 
+// RunConcurrent executes the process for set of data (same as running Run for each of input).
+// This method starts the process in concurrent way, so it will be much faster than regular running.
+//
+// Runtime of the process is following, pre-check function is always run before job function,
+// if pre-check returns error then job function is skipped and next step is run, in case job returns error
+// no further step is being run. First return parameters are execution errors returned by jobs/pre-checks,
+// second parameter is runtime error. In case run returns a runtime error you should probably retry the same event.
+//
+// Possible runtime errors:
+// - ErrJobFailed
+// - ErrExecutionCanceled
+// - context.Canceled
 func (c *Coordinator) RunConcurrent(inputs []interface{}) <-chan Result {
 	c.wg.Add(len(inputs))
 
 	go func(localInputs []interface{}) {
-		c.updateWorkersSteps()
-
 		for i := range localInputs {
 			c.inputs <- localInputs[i]
 		}
@@ -160,10 +175,4 @@ func (c *Coordinator) RunConcurrent(inputs []interface{}) <-chan Result {
 // [DEPRECATED] Instead check first return parameter from Run method.
 func (c *Coordinator) GetExecutionErrors() []error {
 	return c.err
-}
-
-func (c *Coordinator) updateWorkersSteps() {
-	for idx := 0; idx < len(c.workers); idx++ {
-		c.workers[idx].steps = c.steps
-	}
 }

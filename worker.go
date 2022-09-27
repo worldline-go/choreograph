@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ErrUnexpectedType indicates receiving unexpected type when casting.
 var ErrUnexpectedType = errors.New("received unexpected type")
 
 // Result is an output for a single piece of work.
@@ -26,6 +27,7 @@ type worker struct {
 	err       []error
 }
 
+// StartWorker starts listening process to handle new inputs.
 func (w *worker) StartWorker(ctx context.Context, inputs <-chan interface{}, results chan<- Result, group *sync.WaitGroup) {
 	workerCtx := context.WithValue(ctx, DataBagContextKey, new(DataBag))
 	workerCtx, w.ctxCancel = context.WithCancel(workerCtx)

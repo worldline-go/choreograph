@@ -152,7 +152,7 @@ func checkStep(step *Step) error {
 type Steps []*Step
 
 func (s Steps) StepName(i int) string {
-	if i > len(s) || strings.TrimSpace(s[i].Name) == "" {
+	if i >= len(s) || strings.TrimSpace(s[i].Name) == "" {
 		return fmt.Sprintf("#%d", i)
 	}
 
