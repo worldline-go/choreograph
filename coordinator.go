@@ -23,8 +23,6 @@ const (
 )
 
 var (
-	// ErrCoordinatorContextEmpty implies that context passed for NewCoordinator was nil.
-	ErrCoordinatorContextEmpty = errors.New("coordinator context cannot be empty")
 	// ErrJobFailed implies that job execution failed.
 	ErrJobFailed = errors.New("job failed")
 	// ErrUnassignableParameter implies that input cannot be used as a parameter in callback function.
@@ -44,27 +42,29 @@ type Coordinator struct {
 	workerCount int
 	workers     []*worker
 
-	inputs  chan interface{}
-	results chan Result
-	wg      *sync.WaitGroup
+	inputs      chan interface{}
+	inputsLock  sync.Locker
+	results     chan Result
+	resultsLock sync.Locker
+	wg          *sync.WaitGroup
 
 	addStepLock sync.Locker
+	steps       Steps
 	err         []error
 }
 
 // NewCoordinator creates new executing processor which uses passed context.
 // It returns error if context is nil.
-func NewCoordinator(ctx context.Context, opts ...Option) (*Coordinator, error) {
-	if ctx == nil {
-		return nil, ErrCoordinatorContextEmpty
-	}
-
+func NewCoordinator(opts ...Option) (*Coordinator, error) {
 	coordinator := &Coordinator{
 		workerCount: runtime.NumCPU(),
-		inputs:      make(chan interface{}, bufferSize),
-		results:     make(chan Result, bufferSize),
-		wg:          new(sync.WaitGroup),
+		inputsLock:  new(sync.Mutex),
+		resultsLock: new(sync.Mutex),
 		addStepLock: new(sync.Mutex),
+		wg:          new(sync.WaitGroup),
+		steps:       nil,
+		inputs:      nil,
+		results:     nil,
 		workers:     nil,
 		err:         nil,
 	}
@@ -75,13 +75,6 @@ func NewCoordinator(ctx context.Context, opts ...Option) (*Coordinator, error) {
 
 	if coordinator.workerCount < 1 {
 		coordinator.workerCount = 1
-	}
-
-	coordinator.workers = make([]*worker, coordinator.workerCount)
-	for workerIdx := 0; workerIdx < coordinator.workerCount; workerIdx++ {
-		coordinator.workers[workerIdx] = new(worker)
-
-		go coordinator.workers[workerIdx].StartWorker(ctx, coordinator.inputs, coordinator.results, coordinator.wg)
 	}
 
 	return coordinator, nil
@@ -111,9 +104,7 @@ func (c *Coordinator) AddStep(s *Step) error {
 		return errors.Wrap(err, "add step")
 	}
 
-	for idx := 0; idx < len(c.workers); idx++ {
-		c.workers[idx].steps = append(c.workers[idx].steps, s)
-	}
+	c.steps = append(c.steps, s)
 
 	return nil
 }
@@ -129,8 +120,8 @@ func (c *Coordinator) AddStep(s *Step) error {
 // - ErrJobFailed
 // - ErrExecutionCanceled
 // - context.Canceled
-func (c *Coordinator) Run(input interface{}) ([]error, error) {
-	resultsChan := c.RunConcurrent([]interface{}{input})
+func (c *Coordinator) Run(ctx context.Context, input interface{}) ([]error, error) {
+	resultsChan := c.RunConcurrent(ctx, []interface{}{input})
 
 	result := <-resultsChan
 
@@ -150,8 +141,13 @@ func (c *Coordinator) Run(input interface{}) ([]error, error) {
 // Possible runtime errors:
 // - ErrJobFailed
 // - ErrExecutionCanceled
-// - context.Canceled
-func (c *Coordinator) RunConcurrent(inputs []interface{}) <-chan Result {
+// - context.Canceled.
+func (c *Coordinator) RunConcurrent(ctx context.Context, inputs []interface{}) <-chan Result {
+	c.inputsLock.Lock()
+	c.resultsLock.Lock()
+
+	c.init(ctx)
+
 	c.wg.Add(len(inputs))
 
 	go func(localInputs []interface{}) {
@@ -160,12 +156,16 @@ func (c *Coordinator) RunConcurrent(inputs []interface{}) <-chan Result {
 		}
 
 		close(c.inputs)
+
+		c.inputsLock.Unlock()
 	}(inputs)
 
 	go func(waitGroup *sync.WaitGroup) {
 		waitGroup.Wait()
 
 		close(c.results)
+
+		c.resultsLock.Unlock()
 	}(c.wg)
 
 	return c.results
@@ -175,4 +175,17 @@ func (c *Coordinator) RunConcurrent(inputs []interface{}) <-chan Result {
 // [DEPRECATED] Instead check first return parameter from Run method.
 func (c *Coordinator) GetExecutionErrors() []error {
 	return c.err
+}
+
+func (c *Coordinator) init(ctx context.Context) {
+	c.inputs = make(chan interface{}, bufferSize)
+	c.results = make(chan Result, bufferSize)
+	c.workers = make([]*worker, c.workerCount)
+
+	for workerIdx := 0; workerIdx < c.workerCount; workerIdx++ {
+		c.workers[workerIdx] = new(worker)
+		c.workers[workerIdx].steps = c.steps
+
+		go c.workers[workerIdx].StartWorker(ctx, c.inputs, c.results, c.wg)
+	}
 }

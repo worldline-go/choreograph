@@ -62,11 +62,9 @@ func TestCoordinator_AddStep(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, err := NewCoordinator(ctx)
+			c, err := NewCoordinator()
 			require.NoError(t, err)
 
 			for _, s := range tt.steps {
@@ -90,12 +88,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 }
 
 func TestNewCoordinator(t *testing.T) {
-	var ctxKey contextKey = "dummy_key"
-
-	testCtx := context.WithValue(context.Background(), ctxKey, "dummy_value")
-
 	type args struct {
-		ctx     context.Context
 		options []Option
 	}
 	tests := []struct {
@@ -106,20 +99,14 @@ func TestNewCoordinator(t *testing.T) {
 	}{
 		{
 			name: "successfully created",
-			args: args{ctx: testCtx},
+			args: args{},
 			want: &Coordinator{
 				workerCount: runtime.NumCPU(),
 			},
 		},
 		{
-			name:    "missing context",
-			args:    args{ctx: nil},
-			wantErr: ErrCoordinatorContextEmpty,
-		},
-		{
 			name: "successfully created with worker count as option",
 			args: args{
-				ctx:     testCtx,
 				options: []Option{WithWorkerCount(10)},
 			},
 			want: &Coordinator{
@@ -129,7 +116,6 @@ func TestNewCoordinator(t *testing.T) {
 		{
 			name: "successfully created with worker count lower than 1",
 			args: args{
-				ctx:     testCtx,
 				options: []Option{WithWorkerCount(0)},
 			},
 			want: &Coordinator{
@@ -139,7 +125,7 @@ func TestNewCoordinator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewCoordinator(tt.args.ctx, tt.args.options...)
+			got, err := NewCoordinator(tt.args.options...)
 
 			if tt.wantErr != nil {
 				assert.Nil(t, got)

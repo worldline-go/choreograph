@@ -114,12 +114,15 @@ func TestCoordinator_Run(t *testing.T) {
 }
 
 func TestCoordinator_RunConcurrent(t *testing.T) {
-	const inputsCount int64 = 1000
+	const (
+		inputsCount int64 = 1000
+		runCounts         = 2
+	)
 
 	var (
+		inputs          = make([]interface{}, inputsCount)
 		preCheckCounter int64
 		jobCounter      int64
-		inputs          = make([]interface{}, inputsCount)
 		resultsCounter  int64
 		idx             int64
 	)
@@ -157,23 +160,30 @@ func TestCoordinator_RunConcurrent(t *testing.T) {
 		},
 	}
 
-	c, err := prepareCoordinatorWithSteps(context.Background(), steps, choreograph.WithWorkerCount(4))
+	c, err := prepareCoordinatorWithSteps(steps, choreograph.WithWorkerCount(4))
 
 	require.NoError(t, err)
 
-	resultsChan := c.RunConcurrent(inputs)
+	// to check if we can run concurrent multiple times we do it in loop
+	for run := 0; run < runCounts; run++ {
+		preCheckCounter = 0
+		jobCounter = 0
+		resultsCounter = 0
 
-	for r := range resultsChan {
-		resultsCounter++
-		require.Lenf(t, r.ExecutionErrors, 0, "no execution errors expected")
-		require.NoError(t, r.RuntimeError)
+		resultsChan := c.RunConcurrent(context.Background(), inputs)
+
+		for r := range resultsChan {
+			resultsCounter++
+			require.Lenf(t, r.ExecutionErrors, 0, "no execution errors expected")
+			require.NoError(t, r.RuntimeError)
+		}
+
+		expectedCallbackCounter := inputsCount * int64(len(steps))
+
+		require.Equalf(t, inputsCount, resultsCounter, "expected %d on results counter, got %d", inputsCount, resultsCounter)
+		require.Equalf(t, expectedCallbackCounter, preCheckCounter, "expected %d on pre-check counter, got %d", expectedCallbackCounter, preCheckCounter)
+		require.Equalf(t, expectedCallbackCounter, jobCounter, "expected %d on job counter, got %d", expectedCallbackCounter, jobCounter)
 	}
-
-	expectedCallbackCounter := inputsCount * int64(len(steps))
-
-	require.Equalf(t, inputsCount, resultsCounter, "expected %d on results counter, got %d", inputsCount, resultsCounter)
-	require.Equalf(t, expectedCallbackCounter, preCheckCounter, "expected %d on pre-check counter, got %d", expectedCallbackCounter, preCheckCounter)
-	require.Equalf(t, expectedCallbackCounter, jobCounter, "expected %d on job counter, got %d", expectedCallbackCounter, jobCounter)
 }
 
 func testStepsRunNoErr(t *testing.T) {
@@ -199,13 +209,11 @@ func testStepsRunNoErr(t *testing.T) {
 		},
 	}
 
-	ctx := context.Background()
-
-	c, err := prepareCoordinatorWithSteps(ctx, steps)
+	c, err := prepareCoordinatorWithSteps(steps)
 
 	require.NoError(t, err)
 
-	execErrs, runtimeErr := c.Run(nil)
+	execErrs, runtimeErr := c.Run(context.Background(), nil)
 	require.Lenf(t, execErrs, 0, "no execution errors expected")
 	require.NoError(t, runtimeErr)
 
@@ -230,7 +238,6 @@ func testSharingDataWithContext(t *testing.T) {
 	ctx = context.WithValue(ctx, contextTestingTKey, t)
 
 	c, err := prepareCoordinatorWithSteps(
-		ctx,
 		[]*choreograph.Step{{
 			Name: "first",
 			Job: func(ctx context.Context) error {
@@ -256,7 +263,7 @@ func testSharingDataWithContext(t *testing.T) {
 
 	require.NoError(t, err)
 
-	execErrs, runtimeErr := c.Run(nil)
+	execErrs, runtimeErr := c.Run(ctx, nil)
 	require.Lenf(t, execErrs, 0, "no execution errors expected")
 	require.NoError(t, runtimeErr)
 
@@ -287,10 +294,7 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 		thirdPreCheckReturnVal             = 21
 	)
 
-	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
-
 	c, err := prepareCoordinatorWithSteps(
-		ctx,
 		[]*choreograph.Step{
 			{
 				Name: "first",
@@ -405,7 +409,9 @@ func testAccessToDataFromPreviousExecutions(t *testing.T) {
 
 	require.NoError(t, err)
 
-	execErrs, runtimeErr := c.Run(nil)
+	ctx := context.WithValue(context.Background(), contextTestingTKey, t)
+
+	execErrs, runtimeErr := c.Run(ctx, nil)
 
 	// 1 because third pre-check is returning it
 	require.Lenf(t, execErrs, 1, "1 execution error expected")
@@ -495,10 +501,10 @@ func testExecutionCorrectness(t *testing.T) {
 
 	ctx := context.Background()
 
-	c, err := prepareCoordinatorWithSteps(ctx, steps)
+	c, err := prepareCoordinatorWithSteps(steps)
 	require.NoError(t, err)
 
-	execErrs, runtimeErr := c.Run(nil)
+	execErrs, runtimeErr := c.Run(ctx, nil)
 	if assert.Lenf(t, execErrs, 0, "no execution errors expected") && assert.NoError(t, runtimeErr) {
 		et.assertExpectation(t)
 	}
@@ -667,10 +673,10 @@ func testExecutionContinueCancel(t *testing.T) {
 				ctx = context.Background()
 			}
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			execErrs, runtimeErr := c.Run(nil)
+			execErrs, runtimeErr := c.Run(ctx, nil)
 			require.Lenf(t, execErrs, tt.expectedExecutionErrorCount, "no execution errors expected")
 
 			if tt.expectedRuntimeError != nil {
@@ -766,10 +772,10 @@ func testRetrieveErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			execErrs, runtimeErr := c.Run(nil)
+			execErrs, runtimeErr := c.Run(ctx, nil)
 
 			if tt.expectedRunError {
 				require.Error(t, runtimeErr)
@@ -1074,10 +1080,10 @@ func testPassingInputData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), contextTestingTKey, t)
 
-			c, err := prepareCoordinatorWithSteps(ctx, tt.steps)
+			c, err := prepareCoordinatorWithSteps(tt.steps)
 			require.NoError(t, err)
 
-			execErrs, runtimeErr := c.Run(tt.input)
+			execErrs, runtimeErr := c.Run(ctx, tt.input)
 			require.Lenf(t, execErrs, 0, "no execution errors expected")
 
 			if tt.expectedErr != nil {
@@ -1089,8 +1095,8 @@ func testPassingInputData(t *testing.T) {
 	}
 }
 
-func prepareCoordinatorWithSteps(ctx context.Context, steps []*choreograph.Step, options ...choreograph.Option) (*choreograph.Coordinator, error) {
-	c, err := choreograph.NewCoordinator(ctx, options...)
+func prepareCoordinatorWithSteps(steps []*choreograph.Step, options ...choreograph.Option) (*choreograph.Coordinator, error) {
+	c, err := choreograph.NewCoordinator(options...)
 	if err != nil {
 		return nil, err
 	}
