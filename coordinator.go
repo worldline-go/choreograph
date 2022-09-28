@@ -58,7 +58,7 @@ type Coordinator struct {
 
 // NewCoordinator creates new executing processor which uses passed context.
 // It returns error if context is nil.
-func NewCoordinator(opts ...Option) (*Coordinator, error) {
+func NewCoordinator(opts ...Option) *Coordinator {
 	coordinator := &Coordinator{
 		workerCount: runtime.NumCPU(),
 		inputsLock:  new(sync.Mutex),
@@ -80,7 +80,7 @@ func NewCoordinator(opts ...Option) (*Coordinator, error) {
 		coordinator.workerCount = 1
 	}
 
-	return coordinator, nil
+	return coordinator
 }
 
 // AddStep adds another step to the queue.
@@ -124,6 +124,7 @@ func (c *Coordinator) AddStep(s *Step) error {
 // - ErrExecutionCanceled
 // - context.Canceled
 func (c *Coordinator) Run(ctx context.Context, input interface{}) ([]error, error) {
+	// as RunConcurrent can return only ErrInputMustBeSlice as error it's safe to skip it
 	resultsChan, _ := c.RunConcurrent(ctx, []interface{}{input})
 
 	result := <-resultsChan
@@ -145,6 +146,9 @@ func (c *Coordinator) Run(ctx context.Context, input interface{}) ([]error, erro
 // - ErrJobFailed
 // - ErrExecutionCanceled
 // - context.Canceled.
+//
+// Possible errors:
+// - ErrInputMustBeSlice
 func (c *Coordinator) RunConcurrent(ctx context.Context, inputs interface{}) (<-chan Result, error) {
 	inSlice, ok := toInterfaceSlice(inputs)
 	if !ok {

@@ -66,8 +66,7 @@ func TestCoordinator_AddStep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c, err := NewCoordinator()
-			require.NoError(t, err)
+			c := NewCoordinator()
 
 			for _, s := range tt.steps {
 				err := c.AddStep(s)
@@ -94,10 +93,9 @@ func TestNewCoordinator(t *testing.T) {
 		options []Option
 	}
 	tests := []struct {
-		name    string
-		args    args
-		want    *Coordinator
-		wantErr error
+		name string
+		args args
+		want *Coordinator
 	}{
 		{
 			name: "successfully created",
@@ -127,17 +125,10 @@ func TestNewCoordinator(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewCoordinator(tt.args.options...)
+			got := NewCoordinator(tt.args.options...)
 
-			if tt.wantErr != nil {
-				assert.Nil(t, got)
-				assert.ErrorIs(t, err, tt.wantErr)
-			} else {
-				assert.NoError(t, err)
-
-				// Check workers count
-				assert.Equalf(t, tt.want.workerCount, got.workerCount, "expected count of workers is '%d', got '%d'", tt.want.workerCount, got.workerCount)
-			}
+			// Check workers count
+			assert.Equalf(t, tt.want.workerCount, got.workerCount, "expected count of workers is '%d', got '%d'", tt.want.workerCount, got.workerCount)
 		})
 	}
 }
