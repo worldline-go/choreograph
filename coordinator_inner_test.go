@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var _ ProcessExecutioner = (*Coordinator)(nil)
+
 func TestCoordinator_AddStep(t *testing.T) {
 	simpleJobOrPreCheckFunc := func(ctx context.Context) error { return nil }
 
