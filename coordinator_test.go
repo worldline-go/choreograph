@@ -170,7 +170,9 @@ func TestCoordinator_RunConcurrent(t *testing.T) {
 		jobCounter = 0
 		resultsCounter = 0
 
-		resultsChan := c.RunConcurrent(context.Background(), inputs)
+		resultsChan, err := c.RunConcurrent(context.Background(), inputs)
+
+		require.NoError(t, err)
 
 		for r := range resultsChan {
 			resultsCounter++

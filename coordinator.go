@@ -6,6 +6,7 @@ package choreograph
 
 import (
 	"context"
+	"reflect"
 	"runtime"
 	"sync"
 
@@ -29,6 +30,8 @@ var (
 	ErrUnassignableParameter = errors.New("cannot assign input to callback")
 	// ErrExecutionCanceled implies that execution was stopped intentionally by developer.
 	ErrExecutionCanceled = errors.New("execution canceled by callback")
+	// ErrInputMustBeSlice implies that input data set should be a slice of any type.
+	ErrInputMustBeSlice = errors.New("input data should be a slice")
 )
 
 // Coordinator is an executing processor of defined steps.
@@ -121,7 +124,7 @@ func (c *Coordinator) AddStep(s *Step) error {
 // - ErrExecutionCanceled
 // - context.Canceled
 func (c *Coordinator) Run(ctx context.Context, input interface{}) ([]error, error) {
-	resultsChan := c.RunConcurrent(ctx, []interface{}{input})
+	resultsChan, _ := c.RunConcurrent(ctx, []interface{}{input})
 
 	result := <-resultsChan
 
@@ -142,13 +145,18 @@ func (c *Coordinator) Run(ctx context.Context, input interface{}) ([]error, erro
 // - ErrJobFailed
 // - ErrExecutionCanceled
 // - context.Canceled.
-func (c *Coordinator) RunConcurrent(ctx context.Context, inputs []interface{}) <-chan Result {
+func (c *Coordinator) RunConcurrent(ctx context.Context, inputs interface{}) (<-chan Result, error) {
+	inSlice, ok := toInterfaceSlice(inputs)
+	if !ok {
+		return c.results, ErrInputMustBeSlice
+	}
+
 	c.inputsLock.Lock()
 	c.resultsLock.Lock()
 
 	c.init(ctx)
 
-	c.wg.Add(len(inputs))
+	c.wg.Add(len(inSlice))
 
 	go func(localInputs []interface{}) {
 		for i := range localInputs {
@@ -158,7 +166,7 @@ func (c *Coordinator) RunConcurrent(ctx context.Context, inputs []interface{}) <
 		close(c.inputs)
 
 		c.inputsLock.Unlock()
-	}(inputs)
+	}(inSlice)
 
 	go func(waitGroup *sync.WaitGroup) {
 		waitGroup.Wait()
@@ -168,7 +176,7 @@ func (c *Coordinator) RunConcurrent(ctx context.Context, inputs []interface{}) <
 		c.resultsLock.Unlock()
 	}(c.wg)
 
-	return c.results
+	return c.results, nil
 }
 
 // GetExecutionErrors returns all errors received during the process execution.
@@ -188,4 +196,20 @@ func (c *Coordinator) init(ctx context.Context) {
 
 		go c.workers[workerIdx].StartWorker(ctx, c.inputs, c.results, c.wg)
 	}
+}
+
+func toInterfaceSlice(in interface{}) ([]interface{}, bool) {
+	sliceValue := reflect.ValueOf(in)
+	if sliceValue.Kind() != reflect.Slice {
+		return []interface{}{}, false
+	}
+
+	c := sliceValue.Len()
+
+	out := make([]interface{}, c)
+	for i := 0; i < c; i++ {
+		out[i] = sliceValue.Index(i).Interface()
+	}
+
+	return out, true
 }
