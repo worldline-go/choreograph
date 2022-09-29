@@ -73,38 +73,18 @@ func (e *executionTracker) assertExpectation(t *testing.T) {
 	}
 }
 
-func TestCoordinator_Run(t *testing.T) {
+func TestCoordinator_RunConcurrent(t *testing.T) {
 	tests := []struct {
 		name     string
 		testFunc func(*testing.T)
 	}{
 		{
-			name:     "steps run without error",
-			testFunc: testStepsRunNoErr,
+			name:     "test concurrent running",
+			testFunc: testConcurrentRunning,
 		},
 		{
-			name:     "sharing data with context",
-			testFunc: testSharingDataWithContext,
-		},
-		{
-			name:     "pre-check can modify context data",
-			testFunc: testAccessToDataFromPreviousExecutions,
-		},
-		{
-			name:     "execution order is correct",
-			testFunc: testExecutionCorrectness,
-		},
-		{
-			name:     "execution is continued on preCheck error and continued on job error",
-			testFunc: testExecutionContinueCancel,
-		},
-		{
-			name:     "retrieving preCheck and job returned errors",
-			testFunc: testRetrieveErrors,
-		},
-		{
-			name:     "test passing input data",
-			testFunc: testPassingInputData,
+			name:     "test acceptable input data",
+			testFunc: testAcceptableInputData,
 		},
 	}
 
@@ -113,7 +93,27 @@ func TestCoordinator_Run(t *testing.T) {
 	}
 }
 
-func TestCoordinator_RunConcurrent(t *testing.T) {
+func testAcceptableInputData(t *testing.T) {
+	coordinator := choreograph.NewCoordinator()
+
+	// check int as input
+	_, err := coordinator.RunConcurrent(context.Background(), 34)
+	assert.ErrorIs(t, err, choreograph.ErrInputMustBeSlice)
+
+	// check string as input
+	_, err = coordinator.RunConcurrent(context.Background(), "34")
+	assert.ErrorIs(t, err, choreograph.ErrInputMustBeSlice)
+
+	// check []string as input
+	_, err = coordinator.RunConcurrent(context.Background(), []string{"a", "b"})
+	assert.NoError(t, err)
+
+	// check []int as input
+	_, err = coordinator.RunConcurrent(context.Background(), []int{1, 2})
+	assert.NoError(t, err)
+}
+
+func testConcurrentRunning(t *testing.T) {
 	const (
 		inputsCount int64 = 1000
 		runCounts   int   = 2
@@ -170,7 +170,9 @@ func TestCoordinator_RunConcurrent(t *testing.T) {
 		jobCounter = 0
 		resultsCounter = 0
 
-		resultsChan := c.RunConcurrent(context.Background(), inputs)
+		resultsChan, err := c.RunConcurrent(context.Background(), inputs)
+
+		require.NoError(t, err)
 
 		for r := range resultsChan {
 			resultsCounter++
@@ -183,6 +185,46 @@ func TestCoordinator_RunConcurrent(t *testing.T) {
 		require.Equalf(t, inputsCount, resultsCounter, "expected %d on results counter, got %d", inputsCount, resultsCounter)
 		require.Equalf(t, expectedCallbackCounter, preCheckCounter, "expected %d on pre-check counter, got %d", expectedCallbackCounter, preCheckCounter)
 		require.Equalf(t, expectedCallbackCounter, jobCounter, "expected %d on job counter, got %d", expectedCallbackCounter, jobCounter)
+	}
+}
+
+func TestCoordinator_Run(t *testing.T) {
+	tests := []struct {
+		name     string
+		testFunc func(*testing.T)
+	}{
+		{
+			name:     "steps run without error",
+			testFunc: testStepsRunNoErr,
+		},
+		{
+			name:     "sharing data with context",
+			testFunc: testSharingDataWithContext,
+		},
+		{
+			name:     "pre-check can modify context data",
+			testFunc: testAccessToDataFromPreviousExecutions,
+		},
+		{
+			name:     "execution order is correct",
+			testFunc: testExecutionCorrectness,
+		},
+		{
+			name:     "execution is continued on preCheck error and continued on job error",
+			testFunc: testExecutionContinueCancel,
+		},
+		{
+			name:     "retrieving preCheck and job returned errors",
+			testFunc: testRetrieveErrors,
+		},
+		{
+			name:     "test passing input data",
+			testFunc: testPassingInputData,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, tt.testFunc)
 	}
 }
 
@@ -1096,10 +1138,7 @@ func testPassingInputData(t *testing.T) {
 }
 
 func prepareCoordinatorWithSteps(steps []*choreograph.Step, options ...choreograph.Option) (*choreograph.Coordinator, error) {
-	c, err := choreograph.NewCoordinator(options...)
-	if err != nil {
-		return nil, err
-	}
+	c := choreograph.NewCoordinator(options...)
 
 	for _, s := range steps {
 		if err := c.AddStep(s); err != nil {
