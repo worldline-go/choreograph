@@ -22,15 +22,13 @@ type Result struct {
 }
 
 type worker struct {
-	ctxCancel context.CancelFunc
-	steps     Steps
-	err       []error
+	steps Steps
+	err   []error
 }
 
 // StartWorker starts listening process to handle new inputs.
 func (w *worker) StartWorker(ctx context.Context, inputs <-chan interface{}, results chan<- Result, group *sync.WaitGroup) {
 	workerCtx := context.WithValue(ctx, DataBagContextKey, new(DataBag))
-	workerCtx, w.ctxCancel = context.WithCancel(workerCtx)
 
 	for i := range inputs {
 		results <- Result{
@@ -87,9 +85,7 @@ func (w *worker) executeStep(ctx context.Context, stepIdx int, input interface{}
 		w.err = append(w.err, errors.Wrapf(err, "preCheck '%s'", w.steps.StepName(stepIdx)))
 
 		if errors.Is(err, ErrExecutionCanceled) || errors.Is(err, ErrUnexpectedType) {
-			w.ctxCancel()
-
-			return ErrExecutionCanceled
+			return errors.Wrap(err, "preCheck cancelled")
 		}
 
 		return nil
@@ -108,8 +104,6 @@ func (w *worker) executeStep(ctx context.Context, stepIdx int, input interface{}
 	err = isReturnError(jobResp)
 	if err != nil {
 		w.err = append(w.err, errors.Wrapf(err, "job '%s'", w.steps.StepName(stepIdx)))
-
-		w.ctxCancel()
 
 		return ErrJobFailed
 	}
