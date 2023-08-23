@@ -56,7 +56,7 @@ func (e *executionTracker) assertExpectation(t *testing.T) {
 		return e.gotTrack[i].timestamp < e.gotTrack[j].timestamp
 	})
 
-	require.Equalf(t, len(e.expectedTrack), len(e.gotTrack), "run count should be equal to expectedOrder")
+	require.Equalf(t, len(e.expectedTrack), len(e.gotTrack), "incorrect run count in execution tracker")
 
 	// check the order
 	for i := range e.expectedTrack {
@@ -86,11 +86,81 @@ func TestCoordinator_RunConcurrent(t *testing.T) {
 			name:     "test acceptable input data",
 			testFunc: testAcceptableInputData,
 		},
+		{
+			name:     "test if failing on first input block second input",
+			testFunc: testReusingContextForMultiInputs,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, tt.testFunc)
 	}
+}
+
+// job for first input fail which leads to context cancellation,
+// this should not lead to block processing of another inputs.
+func testReusingContextForMultiInputs(t *testing.T) {
+	dummyErr := errors.New("dummy error")
+
+	// setting single worker
+	ctx := context.Background()
+
+	et := &executionTracker{
+		expectedTrack: []track{
+			{name: "1", callbackName: "preCheck"},
+			{name: "2", callbackName: "preCheck"},
+			{name: "2", callbackName: "job"},
+			{name: "shouldRunOnlyFor2", callbackName: "preCheck"},
+			{name: "shouldRunOnlyFor2", callbackName: "job"},
+		},
+	}
+
+	c, err := prepareCoordinatorWithSteps(
+		[]*choreograph.Step{
+			{
+				Name: "shouldRunForBoth",
+				Job: func(_ context.Context, input interface{}) error {
+					inputToStr := input.(string)
+
+					if inputToStr == "1" {
+						return dummyErr
+					}
+
+					et.registerExecution(inputToStr, "job")
+
+					return nil
+				},
+				PreCheck: func(_ context.Context, input interface{}) error {
+					inputToStr := input.(string)
+
+					et.registerExecution(inputToStr, "preCheck")
+
+					return nil
+				},
+			},
+			{
+				Name:     "shouldRunOnlyFor2",
+				Job:      et.getExecutionFn("shouldRunOnlyFor2", "job"),
+				PreCheck: et.getExecutionFn("shouldRunOnlyFor2", "preCheck"),
+			},
+		},
+		choreograph.WithWorkerCount(1),
+	)
+
+	require.NoError(t, err)
+
+	results, err := c.RunConcurrent(ctx, []interface{}{"1", "2"})
+	require.NoError(t, err)
+
+	out := <-results
+	require.ErrorIs(t, out.ExecutionErrors[0], dummyErr)
+	require.Error(t, out.RuntimeError)
+
+	out = <-results
+	require.Lenf(t, out.ExecutionErrors, 0, "no execution errors expected")
+	require.NoError(t, out.RuntimeError)
+
+	et.assertExpectation(t)
 }
 
 func testAcceptableInputData(t *testing.T) {
@@ -553,13 +623,12 @@ func testExecutionCorrectness(t *testing.T) {
 }
 
 func testExecutionContinueCancel(t *testing.T) {
-	dummyErr := errors.New("dummy error")
 	et := &executionTracker{}
 
 	errReturningFn := func(name, callbackName string) func(_ context.Context) error {
 		return func(_ context.Context) error {
 			et.registerExecution(name, callbackName)
-			return dummyErr
+			return errors.New("dummy error")
 		}
 	}
 
