@@ -76,7 +76,7 @@ func (w *worker) executeStep(ctx context.Context, stepIdx int, input interface{}
 
 	if output, ok := isReturnOutput(preCheckResp); ok {
 		if db, ok := ctx.Value(DataBagContextKey).(*DataBag); ok {
-			db.setPreCheckData(w.steps.StepName(stepIdx), output)
+			db.SetPreCheckData(w.steps.StepName(stepIdx), output)
 		}
 	}
 
@@ -110,7 +110,7 @@ func (w *worker) executeStep(ctx context.Context, stepIdx int, input interface{}
 
 	if output, ok := isReturnOutput(jobResp); ok {
 		if db, ok := ctx.Value(DataBagContextKey).(*DataBag); ok {
-			db.setJobData(w.steps.StepName(stepIdx), output)
+			db.SetJobData(w.steps.StepName(stepIdx), output)
 		}
 	}
 
