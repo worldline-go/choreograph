@@ -26,13 +26,13 @@ type DataBag struct {
 	bag sync.Map
 }
 
-// GetJobData allows to fetch the job data from bag using step name.
+// GetJobData allows to fetch the job data from data bag using step name.
 // If ok is false, it means that no data was stored.
 func (d *DataBag) GetJobData(name string) (interface{}, bool) {
 	return d.getData(name + jobDataPostfix)
 }
 
-// GetPreCheckData allows to fetch the job data from bag using step name.
+// GetPreCheckData allows to fetch the pre-check data from data bag using step name.
 // If ok is false, it means that no data was stored.
 func (d *DataBag) GetPreCheckData(name string) (interface{}, bool) {
 	return d.getData(name + preCheckDataPostfix)
@@ -50,11 +50,13 @@ func (d *DataBag) setData(name string, data interface{}) {
 	d.bag.Store(d.getKeyName(name), data)
 }
 
-func (d *DataBag) setJobData(name string, data interface{}) {
+// SetJobData allows to set the job data from data bag using step name.
+func (d *DataBag) SetJobData(name string, data interface{}) {
 	d.setData(name+jobDataPostfix, data)
 }
 
-func (d *DataBag) setPreCheckData(name string, data interface{}) {
+// SetPreCheckData allows to set the pre-check data to data bag using step name.
+func (d *DataBag) SetPreCheckData(name string, data interface{}) {
 	d.setData(name+preCheckDataPostfix, data)
 }
 

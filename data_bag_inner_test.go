@@ -35,7 +35,7 @@ func TestDataBag_GetJobData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := new(DataBag)
 
-			d.setJobData(tt.args.keyName, tt.args.storeVal)
+			d.SetJobData(tt.args.keyName, tt.args.storeVal)
 
 			got, exists := d.GetJobData(tt.getKeyName)
 
@@ -52,7 +52,7 @@ func TestDataBag_GetPreCheckData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := new(DataBag)
 
-			d.setPreCheckData(tt.args.keyName, tt.args.storeVal)
+			d.SetPreCheckData(tt.args.keyName, tt.args.storeVal)
 
 			got, exists := d.GetPreCheckData(tt.getKeyName)
 
